@@ -1,0 +1,17 @@
+[
+    {
+        "no": 1,
+        "eng": "Which of the following descriptions of the image is incorrect?  \n- (1) There are high mountains covered with snow and glaciers.  \n- (2) The lake is on the left side of the image.  \n- (3) There is a small cabin near the bottom center of the image.  \n- (4) Trees and vegetation spread across the foreground.",
+        "img": "alex-ramon-aY_nzJTardo-unsplash.jpg"
+    },
+    {
+        "no": 2,
+        "eng": "Which of the following descriptions of the image is incorrect?\n\n- (1) Many people are seated at long tables using laptops.\n- (2) A large presentation screen is set up on the right side of the venue.\n- (3) Most of the tables are covered with black cloth.\n- (4) The words “DIVE 2024” can be seen in several places around the venue.",
+        "img": "busan_dive.jpg"
+    },
+    {
+        "no": 3,
+        "eng": "Which of the following descriptions of the image is incorrect?  \n- (1) Several pine trees can be seen in the foreground.  \n- (2) All the trees are bare, with no leaves on them.  \n- (3) A mountain range stretches out behind the trees.  \n- (4) The sky is blue, with some white clouds visible.",
+        "img": "hunter-owens-FoH8Lt_H2Tc-unsplash.jpg"
+    }
+]

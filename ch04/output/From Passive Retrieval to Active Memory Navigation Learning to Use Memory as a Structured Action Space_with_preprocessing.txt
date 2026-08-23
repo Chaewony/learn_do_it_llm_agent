@@ -1,0 +1,1201 @@
+From Passive Retrieval to Active Memory
+Navigation: Learning to Use Memory as a
+Structured Action Space
+Yue Xu*1,2, Yutao Sun*3, Yihao Liu*4, Mengyu Zhou†1, Jiayi Qiao*5, Lu Ma1, Kai Tang1, Wenjie Wang†2, Xiaoxi
+Jiang1 and Guanjun Jiang1
+1Qwen Large Model Application Team, Alibaba, 2ShanghaiTech University, 3Zhejiang University, 4Peking University, 5National
+University of Singapore
+*Work done during an internship at Alibaba. †Corresponding author.
+Long-term user memory is essential for personalized conversational agents, yet many memory systems
+still expose memory through passive retrieval interfaces, making the model a consumer of pre-selected
+evidence. We introduce NapMem, a framework for learning to use long-term user memory as a structured
+action space rather than passively retrieved context. NapMem organizes user history into a linked multi-
+granularity memory pyramid, where raw conversations, typed memory records, topic tracks, and user
+profiles are connected through provenance relations, and exposes these levels through memory tools. The
+agent is trained to select memory according to the query and intermediate evidence, allowing it to inspect
+different memory granularities before answering. Experiments on PersonaMem-v2, LongMemEval, and
+LoCoMo show that a NapMem agent trained with memory-tool reinforcement learning is competitive
+across diverse memory-intensive tasks, while evaluations on non-memory tasks suggest that the learned
+policy largely preserves general reasoning and tool-use abilities. Additional analyses examine storage,
+inference cost, tool-use behavior, and ablations over navigation, memory granularity, and RL training.
+Our results suggest that long-term user memory benefits from coupling structured storage with a learned
+policy for using memory at the appropriate granularity.
+1. Introduction
+Figure 1 | Motivating example for active memory
+navigation. Passive retrieval leaves the agent with
+partial evidence, while NapMem exposes long-
+term user memory as an action interface, enabling
+the agent to search for sufficient evidence before
+answering.
+As Large Language Model (LLM) agents are deployed in
+personal assistance, education, workplace productivity,
+and other long-running interactive settings, they are ex-
+pected to maintain continuity and personalization across
+sessions, requiring agents to build a persistent understand-
+ing of the user. Long-term user memory is therefore be-
+coming an essential component for personalized conver-
+sational agents (Hu et al., 2025; Packer et al., 2024; Xu
+et al., 2026b). However, building an effective user mem-
+ory system is challenging since user information is multi-
+faceted and future queries impose heterogeneous memory
+requirements (Zhong et al., 2023). Different queries may
+require different types of user memory, making it difficult
+for a fixed memory representation or access strategy to
+generalize across future interactions.
+Existing efforts improve user memory from two direc-
+tions: memory construction and memory retrieval. On
+the construction side, recent systems build richer memory
+infrastructures by designing finer-grained memory cate-
+gories, introducing vector, graph, hybrid, or hierarchical
+arXiv:2607.05794v1  [cs.AI]  7 Jul 2026
+
+------------------------------------
+Figure 2 | Overview of NapMem. The agent actively navigates a multi-granularity long-term memory pyramid
+through memory tools, selecting appropriate abstraction levels and refining actions based on intermediate
+evidence.
+storage structures, and using agentic methods to manage memory entries (Chhikara et al., 2025; Rasmussen
+et al., 2025; Li et al., 2025; Kang et al., 2025). On the retrieval side, another line of work makes memory
+access more adaptive by introducing reflective retrieval, personalizing retrieval queries, or optimizing retrieval
+reranking (Tan et al., 2025; Jiang et al., 2025b; Zhang et al., 2026b). However, these approaches largely treat
+memory access as a system-level retrieval function or a predesigned pipeline, leaving the agent with limited
+control over how memory is utilized.
+We argue that long-term user memory use should move from system-level passive retrieval to agent-native
+memory navigation. As illustrated in Figure 1, passive retrieval reduces different memory storage structures to
+pre-selected context and delivers it to the agent, limiting the agent’s ability to inspect additional evidence when
+the retrieved context is incomplete. In contrast, active memory navigation formulates long-term user memory
+as a structured action space and equips the agent with memory tools, allowing it to decide whether memory is
+needed, which level of abstraction to consult, and whether the acquired evidence is sufficient. We instantiate
+this view with NapMem (Navigate over Pyramid Memory), a framework that trains agents to navigate memory
+as a structured action space.
+Specifically, NapMem first organizes user interaction histories into a multi-granularity memory pyramid.
+As shown in Figure 2, the pyramid spans raw conversations for evidence-level verification, typed memory
+records for compact facts and preferences, topic tracks for cross-session aggregation, and user profiles for
+stable user-level information. These levels are linked through provenance relations, making the memory bank
+a navigable interface over different levels of user understanding. To enable navigation over this interface,
+NapMem exposes memory access through tools tailored to different memory granularities. The agent is then
+trained with reinforcement learning to use these tools according to the query and the evidence gathered so far.
+In this way, memory use becomes an explicit and optimizable part of the agent’s decision process: the agent
+can start from a broad summary, drill down to specific evidence, or stop once enough information has been
+collected.
+We evaluate NapMem on six benchmarks covering both long-term user-memory tasks and non-memory
+tasks. Across three memory-intensive benchmarks, NapMem achieves competitive performance on diverse
+user-memory requirements, including personalization, long-range recall, and cross-session reasoning. Across
+three non-memory benchmarks, NapMem largely preserves performance on selected reasoning and tool-
+use tasks, suggesting that memory-use training does not necessarily compromise broader agent capabilities.
+Ablations indicate that the gains are associated with the coupling between the memory pyramid and the learned
+navigation policy, while tool-call analyses reveal query-dependent memory-use behaviors, offering insights
+toward more agent-native use of long-term memory. Our contributions can be summarized as follows:
+• We formulate long-term user-memory use as active memory navigation, reframing memory from passively
+retrieved context into a structured action space that agents can learn to use.
+
+------------------------------------
+• We introduce NapMem, a framework that builds a multi-granularity memory pyramid and exposes raw
+conversations, memory records, topic tracks, and user profiles through tools for controllable memory access.
+• We train an agent to navigate this structured memory action space with reinforcement learning over memory-
+tool trajectories.
+• We evaluate NapMem across memory-intensive and non-memory benchmarks, analyzing task performance,
+generalization, efficiency, and tool-use behavior.
+2. Related Work
+Memory construction and organization. A large body of work studies how long-term memories should be
+constructed, organized, and maintained for LLM agents. Early user-memory systems such as MemoryBank
+and MemGPT introduce persistent user history and virtual context management for long-running interactions
+(Zhong et al., 2023; Packer et al., 2024). Recent systems further explore different memory architectures: Mem0
+constructs compact memory records for scalable retrieval, Zep organizes memory as a temporal knowledge
+graph, MemOS treats memory as a system-level resource for memory-augmented generation, and MemoryOS
+proposes a hierarchical short-/mid-/long-term personal memory architecture (Chhikara et al., 2025; Rasmussen
+et al., 2025; Li et al., 2025; Kang et al., 2025). Other recent work improves memory organization from
+complementary perspectives. A-MEM dynamically links and evolves memories in an agentic manner, and
+LightMem and SimpleMem emphasize lightweight compression and efficient consolidation (Xu et al., 2026a;
+Fang et al., 2026; Liu et al., 2026).
+Adaptive retrieval for user memory. Another line of work improves the retrieval stage. Reflective Memory
+Management (RMM) proposes retrospective reflection, which refines retrieval through online reinforcement
+learning based on cited evidence (Tan et al., 2025). More broadly, retrieval-oriented training methods such as
+Search-R1 and DeepRetrieval optimize query generation, enabling models to produce more effective search
+queries during reasoning or retrieval (Jin et al., 2025; Jiang et al., 2025b). Zhang et al. (2026b) further shows
+that user-specific signals can improve retrieval by expanding queries according to user expression style and
+corpus structure before retrieval. These methods make retrieval more adaptive through query generation, while
+the downstream agent still follows a fixed memory-use interface.
+RL-based and agentic memory systems. Learning-based memory systems have recently explored how to
+replace hand-crafted memory routines with trainable policies. One line of work focuses on memory construction,
+training agents to decide what information should be stored, how memories should be structured, or when
+they should be updated using downstream task feedback (Wang et al., 2025; Kang et al., 2026). Another
+line treats memory management as an operation-selection problem, where agents learn or orchestrate actions
+such as writing, updating, deleting, summarizing, or retrieving memories across long-term and short-term
+stores (Yan et al., 2026; Yu et al., 2026; Zhang et al., 2026a). Recent routing-based systems further externalize
+memory planning by assigning queries to different memory paths or modules (Chen et al., 2026). These studies
+show that memory behavior can be learned or orchestrated beyond fixed heuristics. NapMem instead studies
+query-time use of a structured user-memory pyramid, training a single conversational agent to select memory
+levels and refine access based on intermediate evidence.
+3. NapMem
+This section presents NapMem, a framework that trains agents to navigate memory as a structured action
+space. We first provide an overview of the framework, then describe the construction of the multi-layer memory
+pyramid, the five memory tools tailored to different memory granularities, and the training objective for
+optimizing the memory-navigation policy.
+3.1. Overview
+As shown in Figure 2, given a user’s interaction history, NapMem constructs a multi-granularity memory pyramid
+that organizes user information from raw conversational evidence to high-level user profiles. At inference time,
+the agent interacts with the memory pyramid through memory tools and sequentially selects which memory
+level to access. We optimize this memory-use behavior with Group Relative Policy Optimization (GRPO) (Shao
+
+------------------------------------
+et al., 2024), using rewards that promote accurate answers, valid format, and appropriate memory use under a
+tool-call budget.
+3.2. Multi-Granularity Memory Pyramid
+NapMem constructs a separate memory pyramid for each user by processing the user’s interaction history
+in chronological order. The construction is incremental and bottom-up: newly observed sessions are first
+appended to the raw-conversation layer and then used to extract and reconcile memory records, which may
+further update topic tracks and the user profile. In this way, lower-layer changes are propagated upward
+when new evidence extends, supersedes, or contradicts existing memories. Each level provides a different
+degree of abstraction over the same user history, and adjacent levels are connected through provenance links
+that allow the agent to move between detailed conversational evidence and summarized user understanding
+during inference. In implementation, the two lower layers are stored as structured JSONL records with unique
+identifiers and auxiliary vector and keyword indices, enabling exact lookup and hybrid retrieval. The two upper
+layers are stored as Markdown files, making them directly readable through memory tools. See Algorithm 1 in
+Appendix B for details.
+Raw conversations. The base layer stores the original user-agent interactions as message-level entries, each
+containing the raw content, speaker role, timestamp, and a unique identifier for exact lookup. This append-only
+layer preserves the highest-fidelity evidence, allowing the agent to recover fine-grained details when needed.
+Memory records. The second layer converts raw conversational evidence into compact memory records. This
+layer serves as the basic semantic unit of user memory, abstracting away conversational redundancy while
+preserving retrievable and verifiable user information. We define four record types to cover different aspects
+of user information: fact, event, instruction, and preference. The record layer is updated through a two-stage
+incremental procedure. First, after a batch of complete user-agent turns has accumulated, the agent receives
+the newly appended conversations together with recent records as background and produces new records
+supported by the current dialogue. Each record follows a fixed schema, including a unique record identifier,
+type, textual content, creation or update time, source message identifiers, and other type-specific metadata.
+Second, newly extracted records are reconciled with the existing related record bank through hybrid retrieval.
+This step removes redundant records, updates outdated or conflicting information, and merges related records
+when appropriate. The reconciled records are registered with persistent record identifiers and indexed for later
+access, while retaining update history and source message identifiers. These identifiers provide a bridge from
+compact user-memory records back to raw conversational evidence.
+Topic tracks. The third layer provides medium-range abstraction by organizing related records into evolving
+user-centric topic tracks. While memory records capture atomic information, many dimensions of user under-
+standing develop across sessions and require longitudinal tracking over multiple pieces of evidence. A topic
+track maintains the accumulated context around a recurring user topic, and is updated through an agent-driven
+writing process. Given newly created or revised records, the agent determines whether to update an existing
+track, merge related tracks, or start a new track. Each track is stored as a file with metadata, a short summary,
+and a narrative description of the topic. Its content is grounded with explicit links to supporting memory record
+identifiers, enabling topic tracks to capture cross-session evolution and recurring user contexts while preserving
+a downward path to the record layer.
+User profile. The top layer maintains a global user profile that summarizes stable user attributes, long-term
+preferences and interaction patterns. The profile is initialized after the first session and updated when sufficient
+new records or topic-track changes have accumulated. During each update, the profile writer revises the
+existing profile file under a length budget, preserving a compact set of long-term user insights. This layer
+provides a concise global view of the user for personalization and high-level contextualization.
+3.3. Tool-Based Memory Navigation
+NapMem exposes memory pyramid levels through a set of memory tools, turning memory use into a sequential
+navigation process over the pyramid. The tool interface makes memory access explicit, requiring the agent to
+decide which memory operation to invoke based on the user query and the information gathered so far.
+
+------------------------------------
+Formally, given a user query 𝑞and a memory pyramid M, the agent sequentially interacts with memory
+before producing the final answer. At each step 𝑡, the agent either invokes a memory tool or terminates
+navigation and answers:
+𝑎𝑡∼𝜋𝜃(· | 𝑞, M, 𝑎<𝑡, 𝑜<𝑡),
+where 𝑎𝑡denotes the next action and 𝑜𝑡denotes the observation returned when a memory tool is invoked. The
+resulting memory-use trajectory is
+𝜏= (𝑎1, 𝑜1, . . . , 𝑎𝑘, 𝑜𝑘, 𝑦),
+where 𝑦is the final answer.
+NapMem is equipped with five tools tailored to different memory layers: get_conversations, search_
+conversations, get_records, search_records, and read_files. Search tools retrieve candidate raw
+conversation snippets or memory records through hybrid search. Get tools access exact messages or records
+through their persistent identifiers. The file-reading tool allows the agent to inspect topic tracks and the user
+profile, which provide higher-level abstractions of user history. These tools support both top-down and bottom-
+up navigation: the agent may begin with global user context, refine its search through topic- or record-level
+memories, or descend to raw conversations for evidence-level verification.
+3.4. Learning Memory Navigation with GRPO
+We optimize the memory-navigation policy with Group Relative Policy Optimization (GRPO) (Shao et al., 2024).
+During training, each sample consists of a memory-intensive user query paired with the corresponding memory
+pyramid, and the agent is required to answer the query under a maximum tool-call budget. We assign only a
+terminal reward to each trajectory, so that tool-use decisions and final-answer generation are optimized with
+respect to the same task-level outcome.
+Reward rubric. We use a rule-based reward over three binary criteria: format validity 𝐹, answer correctness
+𝐶, and memory-tool usage 𝑈. Here, 𝐹indicates whether the final answer satisfies the required answer format,
+𝐶indicates whether the answer is correct, and 𝑈indicates whether the trajectory invokes at least one memory
+tool. Since RL training uses memory-intensive queries, memory-tool usage is treated as a desired behavior
+during training. Trajectories that exceed the tool-call budget or fail to produce a valid final answer are treated
+as invalid outputs. The reward is defined as
+𝑟(𝜏) =
+
+
+−1,
+𝐹= 0,
+1,
+𝐹= 1, 𝐶= 1, 𝑈= 1,
+0,
+𝐹= 1, 𝐶= 1, 𝑈= 0,
+−0.5,
+𝐹= 1, 𝐶= 0, 𝑈= 1,
+−1,
+𝐹= 1, 𝐶= 0, 𝑈= 0.
+For multiple-choice tasks, correctness is computed by exact accuracy; for open-ended tasks, it is determined
+by an LLM judge following the corresponding benchmark protocol. This reward assigns the highest score to
+trajectories that answer correctly through memory use, while penalizing malformed outputs and incorrect
+answers.
+Group-relative optimization. For each query, let G denote the group of sampled trajectories and let 𝑟𝑖= 𝑟(𝜏𝑖)
+be the terminal reward of trajectory 𝜏𝑖. We compute the group-relative advantage as
+𝐴𝑖= 𝑟𝑖−1
+|G|
+∑︁
+𝑗∈G
+𝑟𝑗.
+The policy is optimized with the clipped GRPO objective:
+J (𝜃) = 𝔼
+"
+1
+|G|
+| G|
+∑︁
+𝑖=1
+1
+𝑇𝑖
+𝑇𝑖
+∑︁
+𝑡=1
+ℓ𝑖,𝑡(𝜃) −𝛽𝐷KL(𝜋𝜃∥𝜋ref)
+#
+,
+where
+ℓ𝑖,𝑡(𝜃) = min  𝜌𝑖,𝑡𝐴𝑖, clip(𝜌𝑖,𝑡, 1 −𝜖, 1 + 𝜖)𝐴𝑖
+
+.
+
+------------------------------------
+Here, 𝜌𝑖,𝑡is the token-level importance ratio, 𝑇𝑖is the number of generated tokens in trajectory 𝜏𝑖. The trajectory-
+level advantage is applied uniformly to all output tokens, including tokens that specify memory-tool calls. As
+a result, the terminal reward jointly optimizes final-answer quality and the preceding memory-navigation
+behavior.
+4. Experiments
+4.1. Experiment Setup
+Datasets. We evaluate NapMem on six benchmarks covering both long-term user-memory tasks and non-
+memory tasks. For memory-intensive tasks, we use PersonaMem-v2 (Jiang et al., 2025a), LongMemEval (Wu
+et al., 2025), and LoCoMo (Maharana et al., 2024). These benchmarks cover two complementary aspects
+of long-term user memory. LongMemEval and LoCoMo focus on user-specific factual memory, including
+long-range recall, temporal changes, and cross-session reasoning. PersonaMem-v2 focuses on implicit user
+preferences and persona understanding, evaluating whether the agent can personalize its responses based on
+user-specific behavioral signals. For non-memory tasks, we evaluate whether memory-use training preserves
+broader agentic capabilities and avoids inducing unnecessary memory calls. We consider general reasoning
+with GPQA-Diamond (GPQA-D) (Rein et al., 2023), text-based function calling with the Berkeley Function
+Calling Leaderboard (BFCL-v3) (Patil et al., 2025), and visual tool-use question answering with V*Bench (Wu
+& Xie, 2024). Detailed dataset descriptions are provided in Appendix A.
+Metrics. For open-ended memory QA tasks such as LoCoMo and LongMemEval, we report F1 and LLM-judge
+accuracy (L-J). For multiple-choice tasks such as PersonaMem-v2 and GPQA-Diamond, we report accuracy. For
+BFCL-v3 and V*Bench, we report task success or accuracy following their standard evaluation protocols.
+Baselines and models. We compare NapMem against five representative memory baselines: Mem0 (Chhikara
+et al., 2025), Zep (Rasmussen et al., 2025), MemOS (Li et al., 2025), MemoryOS (Kang et al., 2025), and
+AgeMem (Yu et al., 2026). These baselines cover both memory architectures and agentic memory policies:
+Mem0 represents flat, vector-based memory; Zep represents temporal graph memory; MemOS represents an
+agent-oriented memory operating system; MemoryOS represents a hierarchical memory architecture; and
+AgeMem represents an RL-trained agentic memory baseline for unified memory management and use. All
+baselines use Qwen3.5-9B (Team, 2026) as the base LLM, and our default NapMem further trains this model
+with the proposed memory-navigation framework. Unless otherwise specified, NapMem refers to this RL-trained
+9B model. In the main comparison, we additionally report two untrained scaling variants, NapMem-122B and
+NapMem-397B, which use Qwen3.5-122B and Qwen3.5-397B as base models without training.
+Implementation details. We train NapMem with memory-tool reinforcement learning on memory-intensive
+queries sampled from LoCoMo and PersonaMem-v2. For each training dataset, we use a 60/20/20 user-level
+split for training, validation, and testing to avoid user-level leakage. LongMemEval is used as an out-of-
+distribution memory benchmark, while the held-out splits of LoCoMo and PersonaMem-v2 evaluate in-domain
+generalization. During inference, NapMem may invoke memory tools for at most four steps per query; trajectories
+exceeding this budget are terminated and counted as incorrect. Each retrieval operation in NapMem returns
+up to five memory items. AgeMem follows the same inference-time tool-step budget. For other non-agentic
+baselines, each retrieval operation is allowed to return up to twenty memory items, while system-specific
+settings otherwise follow the original implementations. We use Qwen3-Embedding-0.6B (Yang et al., 2025)
+as the shared encoder for all embedding-based retrieval components. For open-ended memory QA, we use
+Claude-Opus-4.6 as the judge model and conduct human checks to validate the reliability of its judgments.
+All reported results are averaged over three random seeds. Additional implementation details, hyperparameters,
+and prompt templates are provided in Appendices C and E.
+4.2. Main Comparison
+Results on long-term user-memory tasks. Table 1 reports results on the three memory-intensive benchmarks.
+NapMem-9B w/ RL obtains the highest average score of 62.74, compared with 59.85 for NapMem-397B. On
+LongMemEval and PersonaMem-v2, our method achieves the best scores among the evaluated systems. On
+LoCoMo, it achieves the best F1 score and is close to the strongest L-J score. These results show that the trained
+
+------------------------------------
+9B model performs competitively across different user-memory settings, including factual recall, cross-session
+reasoning, and implicit preference understanding. Long-term user-memory performance benefits not only from
+structured memory storage but also from a trained policy for selecting and using the appropriate memory
+actively.
+Method
+LoCoMo
+LongMemEval
+PersonaMem-v2
+Avg.
+F1
+L-J
+F1
+L-J
+Acc.
+Mem0
+41.19 ± 0.36
+60.86 ± 0.38
+53.86 ± 0.54
+78.00 ± 0.82
+38.89 ± 0.34
+59.25 ± 0.32
+Zep
+36.09 ± 0.38
+52.21 ± 0.31
+52.61 ± 0.20
+73.33 ± 0.94
+36.33 ± 0.81
+53.96 ± 0.43
+MemOS
+35.22 ± 0.38
+55.82 ± 0.65
+39.16 ± 0.40
+54.33 ± 0.47
+37.58 ± 0.44
+49.24 ± 0.30
+MemoryOS
+31.40 ± 0.53
+44.28 ± 1.22
+22.68 ± 0.30
+23.67 ± 0.58
+35.82 ± 1.87
+34.59 ± 0.05
+AgeMem
+38.00 ± 0.12
+45.02 ± 0.12
+37.83 ± 1.38
+51.33 ± 0.94
+24.19 ± 0.67
+40.18 ± 0.37
+NapMem-122B
+35.39 ± 0.26
+51.69 ± 0.84
+48.86 ± 2.58
+70.00 ± 1.73
+41.38 ± 0.77
+54.36 ± 0.74
+NapMem-397B
+38.31 ± 0.13
+54.42 ± 0.81
+53.85 ± 1.25
+78.33 ± 2.08
+46.10 ± 1.15
+59.85 ± 1.14
+NapMem-9B w/ RL
+41.28 ± 0.59
+59.92 ± 0.78
+57.41 ± 1.12
+80.33 ± 0.47
+47.97 ± 1.01
+62.74 ± 0.45
+Table 1 | Memory-intensive task performance on LoCoMo, LongMemEval, and PersonaMem-v2. L-J denotes the
+LLM-judge accuracy. Avg. is the mean of LoCoMo L-J, LongMemEval L-J, and PersonaMem-v2 accuracy.
+NapMem preserves non-memory agent capabilities. We evaluate non-memory benchmarks to test whether
+memory-tool training induces unnecessary memory access. For each query, we randomly assign a user memory
+pyramid and enable all memory tools, while the task itself does not require user history. Table 2 shows that
+NapMem-9B w/ RL remains competitive with the base model on non-memory tasks and improves several
+metrics on GPQA-D and V*Bench. Compared with the no-RL variant, RL substantially reduces unnecessary
+memory calls on GPQA-D, from 34.51% to 6.90%, and keeps memory calls at zero on BFCL-v3 and V*Bench.
+This behavior indicates that RL helps calibrate memory-tool use rather than simply increasing memory access,
+while largely preserving non-memory reasoning and tool-use performance.
+Benchmark
+Metric
+Base
+NapMem-9B
+w/o RL
+w/ RL
+GPQA-D
+Acc.
+53.03
+55.74
+57.58
+Memory call
+–
+34.51
+6.90
+BFCL-v3
+Task acc.
+95.00
+93.50
+95.00
+Tool acc.
+97.50
+97.50
+97.50
+Exec acc.
+93.50
+94.00
+94.50
+Memory call
+–
+0.00
+0.00
+V*Bench
+Answer Acc.
+84.82
+89.53
+91.10
+Tool acc.
+97.91
+98.95
+99.48
+Exec acc.
+97.91
+98.95
+99.48
+Memory call
+–
+0.00
+0.00
+Table 2 | Generalization to non-memory tasks. We compare the base model and NapMem on reasoning and
+tool-use benchmarks, with memory-tool call rates reported to measure unnecessary memory access.
+4.3. Efficiency
+Storage efficiency. Storage efficiency is important for long-term user memory because user histories grow
+continuously over time. Table 3 shows that NapMem uses less storage than most memory-system baselines
+despite exposing multiple memory granularities. Although AgeMem has a smaller footprint due to its lightweight
+flat-memory design, its task performance is substantially lower in Table 1. This suggests that storage size alone
+is not sufficient. By separating raw evidence, compact records, and higher-level abstractions, NapMem provides
+a lightweight structure for scalable long-term memory while preserving the information needed for flexible
+memory navigation.
+
+------------------------------------
+Dataset
+NapMem
+Mem0
+MemOS
+Zep
+MemoryOS
+AgeMem
+PersonaMem-v2
+0.69
+1.40 (2.03×)
+3.61 (5.23×)
+3.50 (5.07×)
+1.98 (2.87×)
+0.34 (0.49×)
+LongMemEval
+4.01
+8.90 (2.22×)
+18.85 (4.70×)
+10.00 (2.49×)
+4.30 (1.07×)
+2.56 (0.64×)
+LoCoMo
+0.12
+0.14 (1.17×)
+0.64 (5.33×)
+0.60 (5.00×)
+0.40 (3.33×)
+0.09 (0.75×)
+Total
+4.83
+10.44 (2.16×)
+23.10 (4.78×)
+14.10 (2.92×)
+6.68 (1.38×)
+2.99 (0.62×)
+Table 3 | Memory-bank storage size in GiB. Values in parentheses denote storage relative to NapMem.
+Inference efficiency. Inference efficiency is important for long-term conversational agents, where memory
+access must improve personalization without increasing interaction latency or response verbosity. Figure 3
+reports inference efficiency on 100 samples, with statistics computed over successful runs for each method.
+The scatter plot compares average latency and average completion tokens and shows an approximately linear
+relationship between the two, suggesting that generation length is a major contributor to inference cost.
+Compared with baselines that passively reason over retrieved memory, NapMem performs targeted memory
+navigation and stops once sufficient evidence is gathered, leading to shorter completions and lower latency
+despite using memory tools.
+5
+10
+15
+20
+25
+30
+Latency (s)
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+3.5
+4.0
+Completion Tokens (K)
+MemoryOS
+MemOS
+Mem0
+Zep
+AgeMem
+NapMem
+Figure 3 | Latency and completion-token statistics on successful runs from 100 PersonaMem-v2 samples.
+4.4. Ablation Study
+We perform ablations to examine the contributions of active navigation, memory granularity, and RL training.
+Table 4 reports the results of four variants on the three memory-intensive benchmarks. As shown, w/o
+navigation replaces tool-based memory access with passive retrieval while keeping the underlying memory
+sources available. records-only tools preserves the tool interface but restricts the agent to compact memory
+records. w/o upper levels allows access to raw conversations and memory records but removes topic tracks and
+the user profile. w/o RL keeps the same memory pyramid and memory tools as Full NapMem, but uses the base
+model without reinforcement learning. The results suggest that all three components contribute to performance.
+w/o navigation falls behind Full NapMem, showing the value of query-conditioned tool use over passive retrieval.
+The lower scores of records-only tools and w/o upper levels suggest that higher-level abstractions complement
+low-level evidence access. Finally, the gap between w/o RL and Full NapMem indicates that the agent benefits
+from learning how to use the memory interface, rather than relying on prompting alone.
+Variant
+LCM.
+LME.
+PMem.
+Avg.
+Full NapMem
+59.92
+80.33
+47.97
+62.74
+w/o RL
+52.09
+72.33
+20.75
+48.39
+w/o navigation
+48.37
+68.00
+45.88
+54.08
+records-only tools
+39.77
+60.00
+35.02
+44.93
+w/o upper levels
+49.13
+75.00
+38.20
+54.11
+Table 4 | Ablation study on memory access design. We report LLM-judge accuracy for LoCoMo and LongMemEval,
+and accuracy for PersonaMem-v2.
+
+------------------------------------
+4.5. Tool-Use Behavior Analysis
+Navigation strategies vary with model scale. We first analyze the first memory action to understand how
+different models initiate memory navigation. As shown in Figure 4, larger NapMem variants more often start
+with file reading, while the 9B variants mostly start from record-level tools. This suggests that larger models
+tend to begin with broader topic-track or profile information, while smaller models prefer localized evidence
+such as records or conversations. One possible explanation is that larger models can better absorb long-form
+memory files, whereas smaller models benefit from starting with shorter, more targeted evidence.
+First Tool Behavior (%)
+NapMem　
+-9B
+NapMem
+-9B
+w/ RL
+NapMem
+-122B
+NapMem
+-397B
+Conversation
+Record
+Read File
+3.88
+92.16
+3.96
+6.13
+88.84
+5.03
+1.06
+54.57
+44.38
+1.20
+52.20
+46.60
+100
+0
+Figure 4 | First-step memory-tool behavior across NapMem variants.
+RL improves navigation efficiency. Table 5 shows that RL training makes memory navigation more selective.
+Multi-level navigation rate denotes the fraction of samples that use more than one memory level, while evidence-
+hit ratio denotes the number of returned tool results that match supporting evidence per 100 tool uses. The
+trained model uses fewer tool calls while achieving higher overall accuracy, indicating that it learns to stop
+once sufficient evidence has been gathered. Meanwhile, the comparable multi-level navigation rate shows that
+this efficiency gain does not come from collapsing to a single memory level, and the higher evidence-hit ratio
+indicates more precise retrieval.
+Model
+Tool Calls
+Multi-level
+Evidence Hit
+NapMem-9B w/ RL
+2.15
+79.63%
+34.92%
+NapMem-9B
+3.97
+80.39%
+20.66%
+NapMem-122B
+2.50
+82.34%
+26.20%
+NapMem-397B
+2.69
+88.22%
+26.42%
+Table 5 | Tool-use behavior across NapMem variants, including average tool calls, multi-level navigation rate,
+and evidence-hit ratio.
+5. Conclusion
+We presented NapMem, a framework that reframes long-term user memory as active navigation over a multi-
+granularity memory pyramid. NapMem organizes user history into raw conversations, memory records, topic
+tracks, and user profiles, and trains agents to select the appropriate memory level through tool use. Experiments
+across memory-intensive and non-memory settings show that NapMem performs competitively on user-memory
+tasks while largely preserving general reasoning and tool-use abilities. Ablations and tool-use analyses further
+indicate that structured memory access and policy training help agents use memory more selectively. We hope
+NapMem encourages future work toward memory agents that treat memory use as an adaptive, learnable part
+of interaction.
+Limitations
+NapMem focuses on making long-term user-memory use explicit and learnable. By organizing user history
+into a memory pyramid and exposing it through tools, the framework provides a controllable interface for
+studying how agents select memory granularity during inference. This work has several limitations. First,
+
+------------------------------------
+the evaluation is conducted on existing long-term memory benchmarks, which may not capture all forms of
+real-world personalization and open-ended user interaction. Second, the current experiments do not fully
+address privacy and forgetting requirements that arise in user-memory systems. Third, broader scaling studies
+could further reveal how model size affects preferred memory-access strategies.
+References
+Jiayi Chen, Yingcong Li, and Guiling Wang. Memflow: Intent-driven memory orchestration for small language
+model agents. arXiv preprint arXiv:2605.03312, 2026.
+Prateek Chhikara, Dev Khant, Saket Aryan, Taranjeet Singh, and Deshraj Yadav. Mem0: Building production-
+ready ai agents with scalable long-term memory, 2025. URL https://arxiv.org/abs/2504.19413.
+Jizhan Fang, Xinle Deng, Haoming Xu, Ziyan Jiang, Yuqi Tang, Ziwen Xu, Shumin Deng, Yunzhi Yao, Mengru
+Wang, Shuofei Qiao, Huajun Chen, and Ningyu Zhang. Lightmem: Lightweight and efficient memory-
+augmented generation, 2026. URL https://arxiv.org/abs/2510.18866.
+Yuyang Hu, Shichun Liu, Yanwei Yue, Guibin Zhang, Boyang Liu, Fangyi Zhu, Jiahang Lin, Honglin Guo, Shihan
+Dou, Zhiheng Xi, et al. Memory in the age of ai agents. arXiv preprint arXiv:2512.13564, 2025.
+Bowen Jiang, Yuan Yuan, Maohao Shen, Zhuoqun Hao, Zhangchen Xu, Zichen Chen, Ziyi Liu, Anvesh Rao
+Vijjini, Jiashu He, Hanchao Yu, Radha Poovendran, Gregory Wornell, Lyle Ungar, Dan Roth, Sihao Chen, and
+Camillo Jose Taylor. Personamem-v2: Towards personalized intelligence via learning implicit user personas
+and agentic memory, 2025a. URL https://arxiv.org/abs/2512.06688.
+Pengcheng Jiang, Jiacheng Lin, Lang Cao, Runchu Tian, SeongKu Kang, Zifeng Wang, Jimeng Sun, and Jiawei
+Han. Deepretrieval: Hacking real search engines and retrievers with large language models via reinforcement
+learning. arXiv preprint arXiv:2503.00223, 2025b.
+Bowen Jin, Hansi Zeng, Zhenrui Yue, Jinsung Yoon, Sercan Arik, Dong Wang, Hamed Zamani, and Jiawei Han.
+Search-r1: Training llms to reason and leverage search engines with reinforcement learning. arXiv preprint
+arXiv:2503.09516, 2025.
+Jiazheng Kang, Mingming Ji, Zhe Zhao, and Ting Bai. Memory os of ai agent, 2025. URL https://arxiv.
+org/abs/2506.06326.
+Jingyi Kang, Chunyu Li, Ding Chen, Bo Tang, Feiyu Xiong, and Zhiyu Li. Memreader: From passive to active
+extraction for long-term agent memory. arXiv preprint arXiv:2604.07877, 2026.
+Zhiyu Li, Shichao Song, Hanyu Wang, Simin Niu, Ding Chen, Jiawei Yang, Chenyang Xi, Huayi Lai, Jihao Zhao,
+Yezhaohui Wang, Junpeng Ren, Zehao Lin, Jiahao Huo, Tianyi Chen, Kai Chen, Kehang Li, Zhiqiang Yin,
+Qingchen Yu, Bo Tang, Hongkang Yang, Zhi-Qin John Xu, and Feiyu Xiong. Memos: An operating system for
+memory-augmented generation (mag) in large language models, 2025. URL https://arxiv.org/abs/
+2505.22101.
+Jiaqi Liu, Yaofeng Su, Peng Xia, Siwei Han, Zeyu Zheng, Cihang Xie, Mingyu Ding, and Huaxiu Yao. Simplemem:
+Efficient lifelong memory for llm agents. arXiv preprint arXiv:2601.02553, 2026.
+Adyasha Maharana, Dong-Ho Lee, Sergey Tulyakov, Mohit Bansal, Francesco Barbieri, and Yuwei Fang.
+Evaluating very long-term conversational memory of LLM agents. In Lun-Wei Ku, Andre Martins, and Vivek
+Srikumar (eds.), Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics
+(Volume 1: Long Papers), pp. 13851–13870, Bangkok, Thailand, August 2024. Association for Computational
+Linguistics. doi: 10.18653/v1/2024.acl-long.747. URL https://aclanthology.org/2024.acl-long.
+747/.
+Charles Packer, Sarah Wooders, Kevin Lin, Vivian Fang, Shishir G. Patil, Ion Stoica, and Joseph E. Gonzalez.
+Memgpt: Towards llms as operating systems, 2024. URL https://arxiv.org/abs/2310.08560.
+Shishir G. Patil, Huanzhi Mao, Charlie Cheng-Jie Ji, Fanjia Yan, Vishnu Suresh, Ion Stoica, and Joseph
+E. Gonzalez. The berkeley function calling leaderboard (bfcl): From tool use to agentic evaluation of large
+language models. In Forty-second International Conference on Machine Learning, 2025.
+
+------------------------------------
+Preston Rasmussen, Pavlo Paliychuk, Travis Beauvais, Jack Ryan, and Daniel Chalef. Zep: A temporal knowledge
+graph architecture for agent memory, 2025. URL https://arxiv.org/abs/2501.13956.
+David Rein, Betty Li Hou, Asa Cooper Stickland, Jackson Petty, Richard Yuanzhe Pang, Julien Dirani, Julian
+Michael, and Samuel R Bowman. Gpqa: A graduate-level google-proof q&a benchmark. arXiv preprint
+arXiv:2311.12022, 2023.
+Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang,
+YK Li, Yang Wu, et al. Deepseekmath: Pushing the limits of mathematical reasoning in open language models.
+arXiv preprint arXiv:2402.03300, 2024.
+Zhen Tan, Jun Yan, I-Hung Hsu, Rujun Han, Zifeng Wang, Long Le, Yiwen Song, Yanfei Chen, Hamid Palangi,
+George Lee, et al. In prospect and retrospect: Reflective memory management for long-term personalized
+dialogue agents. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics
+(Volume 1: Long Papers), pp. 8416–8439, 2025.
+Qwen Team.
+Qwen3.5: Accelerating productivity with native multimodal agents, February 2026.
+URL
+https://qwen.ai/blog?id=qwen3.5.
+Yu Wang, Ryuichi Takanobu, Zhiqi Liang, Yuzhen Mao, Yuanzhe Hu, Julian McAuley, and Xiaojian Wu. Mem-𝛼:
+Learning memory construction via reinforcement learning, 2025. URL https://arxiv.org/abs/2509.
+25911.
+Di Wu, Hongwei Wang, Wenhao Yu, Yuwei Zhang, Kai-Wei Chang, and Dong Yu. Longmemeval: Benchmarking
+chat assistants on long-term interactive memory, 2025. URL https://arxiv.org/abs/2410.10813.
+Penghao Wu and Saining Xie. V?: Guided visual search as a core mechanism in multimodal llms. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pp. 13084–13094, June 2024.
+Wujiang Xu, Zujie Liang, Kai Mei, Hang Gao, Juntao Tan, and Yongfeng Zhang. A-mem: Agentic memory for
+llm agents. Advances in Neural Information Processing Systems, 38:17577–17604, 2026a.
+Yue Xu, Qian Chen, Zizhan Ma, Dongrui Liu, Wenxuan Wang, Xiting Wang, Li Xiong, and Wenjie Wang.
+Toward personalized llm-powered agents: Foundations, evaluation, and future directions, 2026b. URL
+https://arxiv.org/abs/2602.22680.
+Sikuan Yan, Xiufeng Yang, Zuchao Huang, Ercong Nie, Zifeng Ding, Zonggen Li, Xiaowen Ma, Jinhe Bi,
+Kristian Kersting, Jeff Z. Pan, Hinrich Schütze, Volker Tresp, and Yunpu Ma. Memory-r1: Enhancing
+large language model agents to manage and utilize memories via reinforcement learning, 2026. URL
+https://arxiv.org/abs/2508.19828.
+An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen
+Huang, Chenxu Lv, et al. Qwen3 technical report. arXiv preprint arXiv:2505.09388, 2025.
+Yi Yu, Liuyi Yao, Yuexiang Xie, Qingquan Tan, Jiaqi Feng, Yaliang Li, and Libing Wu. Agentic memory:
+Learning unified long-term and short-term memory management for large language model agents, 2026.
+URL https://arxiv.org/abs/2601.01885.
+Haozhen Zhang, Quanyu Long, Jianzhu Bao, Tao Feng, Weizhi Zhang, Haodong Yue, and Wenya Wang.
+Memskill: Learning and evolving memory skills for self-evolving agents, 2026a. URL https://arxiv.org/
+abs/2602.02474.
+Yingyi Zhang, Pengyue Jia, Derong Xu, Yi Wen, Xianneng Li, Yichao Wang, Wenlin Zhang, Xiaopeng Li, Weinan
+Gan, Huifeng Guo, et al. Personalize before retrieve: Llm-based personalized query expansion for user-centric
+retrieval. In Proceedings of the AAAI Conference on Artificial Intelligence, volume 40, pp. 16406–16414, 2026b.
+Wanjun Zhong, Lianghong Guo, Qiqi Gao, He Ye, and Yanlin Wang. Memorybank: Enhancing large language
+models with long-term memory, 2023. URL https://arxiv.org/abs/2305.10250.
+
+------------------------------------
+A. Dataset Split Details
+LoCoMo (Maharana et al., 2024). LoCoMo contains long multi-session conversations between two speakers,
+with questions that test long-term conversational memory. We convert each two-speaker conversation into
+speaker-specific user-agent memory banks by treating one speaker as the user and the other as the assistant,
+resulting in 20 users. We split users into train/validation/test with a 6/2/2 ratio. For each target speaker, we
+add a synthetic setup turn at the beginning of the memory bank, as shown below. If the first original utterance
+is already from the assistant/counterpart, only the user setup message is added. During evaluation, questions
+are asked from the corresponding speaker’s perspective, and we remove questions whose evidence is missing or
+inconsistent with the provided answer in the original dataset. The final test set contains 1,315 questions.
+LoCoMo speaker-specific setup turn
+User: I am {target_speaker}. You are {counterpart_speaker}. Talk to me naturally like a friend.
+Assistant: Got it.
+LongMemEval. (Wu et al., 2025) LongMemEval evaluates long-term interactive memory across question types
+such as single-session recall, multi-session reasoning, temporal reasoning, knowledge updates, and preference-
+related questions. We use LongMemEval only as a held-out test benchmark to evaluate out-of-distribution
+generalization, with 100 test questions in total.
+PersonaMem-v2. (Jiang et al., 2025a) PersonaMem-v2 evaluates personalized response selection from implicit
+user preferences and persona signals across long user-agent interactions. The benchmark contains 200 users,
+which we split by user into train/validation/test with a 6/2/2 ratio. The test set contains 911 questions. During
+evaluation, we randomly shuffle the answer options for each question to reduce positional bias.
+GPQA-Diamond (Rein et al., 2023). We use the GPQA-Diamond (GPQA-D) dataset to evaluate memory-
+independent scientific reasoning. It is a graduate-level, Google-proof multiple-choice benchmark containing
+difficult biology, physics, and chemistry questions written by domain experts.
+V*Bench. (Wu & Xie, 2024) We evaluate visual tool use on the official V* test set with 191 examples, including
+direct-attribute and relative-position questions. Each example contains an image, a multiple-choice visual
+question, and a ground-truth answer option. The model may call tools at most once and get the zoomed image
+as required for response.
+BFCL-v3. (Patil et al., 2025) We evaluate text-based tool use on a 200-example executable subset of BFCL-v3,
+consisting of exec_simple, exec_multiple, and exec_parallel examples. Each example provides a user
+request, executable function schemas, and ground-truth tool calls. The evaluator executes the model-generated
+tool calls with deterministic local backends and returns the results to the model. We report tool-call accuracy,
+execution accuracy, task accuracy, and unnecessary memory tool-call count.
+B. Memory Construction Details
+NapMem builds an independent memory pyramid for each user by replaying normalized sessions in chronological
+order. The builder appends raw messages, extracts and reconciles memory records, periodically updates topic
+tracks, and refreshes the user profile. Construction is incremental: lower-layer changes are propagated upward
+only when update triggers are met.
+Raw conversations. For each non-empty message, NapMem stores the speaker role, content, timestamp,
+session identifier, message identifier, user identifier, and available metadata. Raw messages are also indexed
+for retrieval using embeddings. This layer is append-only and serves as the evidence source for exact lookup
+and verification.
+
+------------------------------------
+Algorithm 1 Incremental construction of a user memory pyramid.
+Require: Chronologically sorted sessions S = {𝑠1, . . . , 𝑠𝑁}
+1: Initialize raw store C, record pool R, pending buffer B, topic tracks T, profile 𝑃
+2: Initialize topic and profile checkpoints 𝑐𝑇, 𝑐𝑃←0
+3: for 𝑠𝑖∈S do
+4:
+if 𝑖> 1 and TopicTrigger(B, 𝑐𝑇, 𝑠𝑖−1, 𝑠𝑖) then
+5:
+T , 𝑐𝑇←UpdateTopicTracks(T , R, B)
+6:
+end if
+7:
+if 𝑖> 1 and ProfileTrigger(T , 𝑃, 𝑐𝑃) then
+8:
+𝑃, 𝑐𝑃←UpdateProfile(𝑃, T)
+9:
+end if
+10:
+Append non-empty messages in 𝑠𝑖to C
+11:
+for each completed turn batch 𝑏in 𝑠𝑖do
+12:
+ˆR ←ExtractRecords(𝑏, recent context, recent records)
+13:
+˜R ←ReconcileRecords( ˆR, R)
+14:
+Add ˜R to R and B
+15:
+if TopicTrigger(B, 𝑐𝑇) then
+16:
+T , 𝑐𝑇←UpdateTopicTracks(T , R, B)
+17:
+end if
+18:
+if ProfileTrigger(T , 𝑃, 𝑐𝑃) then
+19:
+𝑃, 𝑐𝑃←UpdateProfile(𝑃, T)
+20:
+end if
+21:
+end for
+22: end for
+23: Flush remaining records, update topic tracks and profile if triggered
+24: Finalize active records, retrieval indices, topic index, and build metadata
+Memory records. Records are extracted from recently completed user-agent turns. The flush schedule expands
+from 1 to 2 to 4 turns and then uses a steady-state size of 5 turns, with a final flush at session end. Each record
+contains a persistent identifier, content, type, source message identifiers, timestamps, session information,
+and update metadata. We use four record types: fact, event, instruction, and preference. New records are
+deduplicated against existing records using vector retrieval. The reconciliation model chooses one of four
+actions: store, skip, update, or merge. For update and merge, source message identifiers and timestamps
+are unioned to preserve provenance. The final records are indexed for later search.
+Topic tracks. Topic tracks consolidate related memory records into medium-range user-centric narratives.
+Each track contains metadata, a concise summary, a narrative description, and explicit evidence links to
+supporting record identifiers. Topic updates are triggered before a new session when unprocessed records
+exist, at date boundaries, when more than 20 new records have accumulated since the last topic checkpoint, at
+replay end, or during final retry recovery. The topic writer can inspect existing tracks, update or create tracks,
+perform localized edits, and finish the update round. The system maintains at most 20 topic tracks. Updates
+are committed only after format validation; invalid writes are rolled back.
+User profile. The profile summarizes stable user attributes, long-term preferences, interaction patterns, and
+high-level contextual information. It is initialized once topic tracks become available and is refreshed when
+requested by the topic writer, after successful topic-track updates, or when more than 50 new records have
+accumulated since the last profile checkpoint. Each refresh revises the existing profile under a length budget. If
+validation fails, the previous profile is restored.
+C. Implementation Details
+We train PyraNav with multi-turn GRPO using the verl framework. At each step, the agent may either answer
+directly or invoke memory tools to inspect different levels of the memory bank. The memory bank is indexed
+with Qwen3-Embedding-0.6B embeddings, and search tools use hybrid reciprocal-rank fusion over keyword
+and vector retrieval with 𝑘= 60.
+
+------------------------------------
+C.1. RL Hyperparameters
+Hyperparameter
+Value
+RL algorithm
+GRPO
+Base model
+Qwen3.5-9B
+Train batch size
+8
+Rollout group size
+4
+Learning rate
+1 × 10−6
+Max assistant turns
+5
+KL loss coefficient
+0.001
+Entropy coefficient
+0
+Precision
+bfloat16
+Total epochs
+5
+Hardware
+NVIDIA H20
+Table 6 | RL hyperparameters for NapMem-9B training.
+C.2. Tool Operation Protocol
+Table 7 summarizes the memory tools exposed to the NapMem agent. The tools are aligned with different levels
+of the memory pyramid. Search tools support coarse retrieval over memory records and raw conversations,
+exact-fetch tools retrieve specific records or messages using identifiers returned by previous tool calls, and
+read_file provides access to higher-level topic tracks and the user profile.
+Tool
+Input
+Functionality
+search_records
+free-text query
+Search structured memory records with hybrid RRF retrieval and return top-5 records.
+search_conversation
+free-text query
+Search raw conversation messages with hybrid RRF retrieval and return top-5 snippets.
+get_records
+record id list
+Fetch exact structured memory records by record_id.
+get_conversation
+message id list
+Fetch exact raw conversation messages by message_id.
+read_file
+file name
+Read a high-level memory-bank file, such as a topic-track file or profile.md.
+Table 7 | Memory tools exposed to the agent. Search tools provide coarse retrieval, while exact-fetch and
+file-reading tools allow the model to navigate between memory granularities.
+C.3. LLM Inference Hyperparameters
+For evaluation, we use the Qwen3-Coder tool-call format for parsing tool invocations. All the generations use
+temperature 1.0, top-𝑝0.9, and a maximum completion length of 4096 tokens.
+C.4. Judge Validation
+For open-ended memory QA, we use Claude-Opus-4.6 as the automatic judge. To validate the reliability of
+the judge, we manually annotate a random subset of 100 judged examples with three human annotators using
+the same prompt as LLM, and compare the LLM judgment against the human-majority label.
+The LLM judge aligns closely with human-majority labels, achieving 99.0% accuracy, 100.0% precision,
+98.0% recall, 99.0% F1, and Cohen’s 𝜅= 0.980. The only disagreement is a false negative case where the gold
+answer indicates that the conversation did not mention baking egg tarts, while the model answered “0 times”;
+the human majority considered this equivalent, but the LLM judge marked it incorrect. Human annotators also
+show high agreement: pairwise Cohen’s 𝜅ranges from 0.920 to 0.960, and Fleiss’ 𝜅across three annotators
+is 0.933. These results indicate that the LLM judge aligns with human-majority judgments at near-human
+reliability in our validation sample.
+
+------------------------------------
+Metric
+LLM vs. Human Majority
+N
+100
+Accuracy
+0.990
+Precision
+1.000
+Recall
+0.980
+F1
+0.990
+Cohen’s 𝜅
+0.980
+TP / TN / FP / FN
+50 / 49 / 0 / 1
+Table 8 | Validation of the LLM judge against human-majority labels on 100 open-ended QA examples.
+Success Case: Upward Navigation to Topic-Level Memory
+Query. What state did Nate visit?
+Memory Trajectory.
+search_conversation(“Nate visit state travel”) →no useful state-level evidence
+search_records(“Nate visit state location travel destination”) →mostly irrelevant or underspecified records
+read_file(Nate-Identity-Interests.md) →
+Relevant topic-track evidence.
+• Basic User Information: Location includes “United States (Tampa beach visit Nov 11).”
+• Evolution Trajectory: Nate traveled to Tampa beach for peace and relaxation on 2022-11-11.
+• Memory Evidence: m_Nate_s0029_2_1_1 records a trek to Tampa beach during a turtle trip.
+Final answer. Florida, because Tampa is in Florida.
+Judge. Correct.
+Figure 5 | Success case.
+D. Case Study
+Figure 5 shows a successful case where upward navigation helps recover missing context. Low-level search over
+raw messages and records returns noisy or underspecified evidence, while the topic track summarizes a Tampa
+beach visit and points the agent to the correct answer. This case illustrates that higher-level memory can help
+when direct retrieval fails to surface the needed evidence. Figure 6 shows a complementary failure mode. The
+agent retrieves relevant records, but the evidence is not strong enough to support the exact premise of the
+selected option. In particular, it over-generalizes an event-level memory about a successful salsa fundraiser
+into a stable preference for weekend salsa dance socials. Future navigation policies should better calibrate
+evidence strength, especially when converting event evidence into user preferences.
+E. Prompt
+E.1. Judge Prompt
+This prompt is used for LoCoMo and LongMemEval judged accuracy during evaluation and RL reward compu-
+tation.
+
+------------------------------------
+Failure Case: Over-generalizing Event Evidence into a Stable Preference
+Query. Do you have suggestions for peaceful weekend activities that can help me recharge and spark inspiration?
+Answer options. A. Since you already love spending weekends at lively salsa dance socials, you might enjoy
+adding a recharge element by strolling through the Pilsen murals in the afternoon, or sipping café de olla at a
+local spot while jotting down memories from your favorite dance nights.
+B. Since you already love spending weekends on your favorite hobbies, you might enjoy adding a peaceful twist
+by taking morning walks in nature, or relaxing at a local café with a notebook, letting your thoughts wander into
+new ideas.
+C. Since you already love spending weekends at silent creative writing retreats, you might enjoy extending that
+peace with sunrise walks along the lakefront, or taking a quiet afternoon to photograph hidden corners of the city.
+Pair that with journaling in a cozy coffee shop, letting the rhythms of the neighborhood inspire fresh story ideas.
+D. Since you already love spending weekends experimenting with new vegan baking recipes, you might enjoy
+extending that creativity by visiting local farmers markets and chatting with growers about seasonal ingredients,
+or taking a peaceful afternoon to sketch in a sunny park while your latest bread rises at home."
+Memory trajectory.
+search_records(weekend activities, hobbies, salsa) →search_records(Gabriela, preferences, relaxation)
+→get_records([m_persona_893_s0001_3_2_2]) →get_records(energy from packed events record)
+→Answer A
+Retrieved evidence.
+• A record states that the user considered changing a fundraiser entertainment lineup to salsa because the
+previous year’s salsa set was successful.
+• Another record states that the user feels energized by packed big events and community connections, but also
+needs alone time afterward to recover.
+• Other retrieved records include forgetting constraints or negative preferences, such as no longer liking certain
+solitary or outdoor activities.
+Failure mode. The agent treats a successful salsa set at a fundraiser as evidence that the user personally loves
+weekend salsa dance socials. This over-generalizes an event-level memory into a stable preference and makes
+option A appear more strongly supported than the evidence warrants.
+Takeaway. Relevant memories may still be too weak to support the exact premise of an answer option. Future
+navigation policies should better distinguish event evidence from stable preference evidence and avoid upgrading
+weak associations into personal traits.
+Figure 6 | Failure case where relevant retrieved memories lead to over-generalization from an event-level
+memory to a stable user preference.
+Open-QA LLM Judge Prompt
+System:
+You are a strict but fair evaluator for open-domain QA. Decide whether the predicted answer correctly answers the
+question given the ground truth answer. Accept paraphrases, aliases, equivalent dates, and equivalent numbers. Ignore
+extra explanation unless it contradicts the ground truth. Output only 1 if the prediction is correct; output only 0
+otherwise.
+User:
+Question: {question}
+Ground truth answer: {ground_truth_answer}
+Predicted answer: {predicted_answer}
+Return only 1 or 0.
+E.2. Memory Pyramid Prompts
+Figure 7–10 show the abbreviated prompt templates used to construct the memory pyramid, covering memory
+record extraction, record reconciliation, topic-track writing, and user-profile updating.
+
+------------------------------------
+Memory Record Extraction Prompt
+You are a scene segmentation and memory extraction expert.
+Given the previous scene, background messages, and newly appended messages, perform two tasks:
+Scene segmentation. Identify the current conversation scene. Inherit the previous scene if there is no clear topic
+transition; otherwise create a new concise scene name.
+Memory extraction. Extract memory records only from the newly appended messages. Each memory must be
+self-contained, grounded in source messages, and belong to one of four types: fact, event, instruction, or preference.
+Do not extract trivial small talk, temporary one-off requests without reusable information, repeated content, or
+unsupported subjective feelings. Preserve answerable details such as names, dates, numbers, prices, locations,
+status changes, and completed actions.
+Output. Return a JSON array. Each item contains a scene name, message ids, and extracted memories:
+[
+{
+"scene_name": "...",
+"message_ids": ["..."],
+"memories": [
+{
+"content": "...",
+"type": "fact|event|instruction|preference",
+"priority": 80,
+"source_message_ids": ["..."],
+"metadata": {}
+}
+]
+}
+]
+Output only valid JSON and no extra text.
+Figure 7 | Abbreviated prompt template for memory record extraction.
+E.3. Inference Prompts
+Figure 11 shows the abbreviated prompt templates used to instruct the model to actively navigate the memory
+space.
+E.4. Artifact Licenses
+Table 9 summarizes the licenses of the external datasets, benchmarks, and model checkpoints used in this
+work. We use all artifacts for research and evaluation purposes, and follow the corresponding license terms
+and citation requirements.
+
+------------------------------------
+Memory Record Reconciliation Prompt
+You are a memory conflict detector.
+Given a set of newly extracted memory records and a retrieved candidate pool of existing records, decide how
+each new record should be handled.
+Actions. For each new record, choose one of:
+• store: add the new record as new information.
+• skip: discard the new record because it is redundant or less informative.
+• update: replace older records when the new record is newer, more specific, or corrects outdated information.
+• merge: combine complementary records that describe the same fact, state, event, instruction, or evolving
+process.
+Decision criteria. Compare records by subject, theme, time, and scene context. Cross-type merging is allowed
+when records describe the same underlying information. Preserve exact values such as names, dates, prices,
+quantities, item lists, locations, and status changes.
+Provenance. For update and merge, the final record must preserve the union of source message identifiers,
+timestamps, and metadata from the new and replaced records.
+Output. Return a JSON array, one decision per new record:
+[
+{
+"record_id": "...",
+"action": "store|skip|update|merge",
+"target_ids": ["..."],
+"merged_content": "...",
+"merged_type": "fact|event|instruction|preference",
+"merged_priority": 85,
+"merged_timestamps": ["..."],
+"merged_source_message_ids": ["..."],
+"merged_metadata": {}
+}
+]
+Output only valid JSON and no extra text.
+Figure 8 | Abbreviated prompt template for memory record reconciliation.
+
+------------------------------------
+Topic Track Writing Prompt
+You are a memory consolidation writer.
+Given newly committed memory records, the existing topic-track index, and the current timestamp, consolidate
+the records into coherent topic tracks.
+Goal.
+Build medium-range user contexts rather than a list of isolated records. Each topic track should summarize a
+recurring user topic, such as an ongoing project, preference domain, relationship, routine, or long-term goal.
+Actions.
+Prefer updating an existing topic track when possible. Create a new track only when the new records cannot be
+integrated into any existing topic. Merge related tracks when they describe the same topic or narrative arc. The
+total number of topic tracks should not exceed 20.
+Writing requirements.
+Each topic track should be written as a Markdown document with metadata, a short summary, a narrative
+description, and an evidence section. The narrative should integrate new and existing information coherently
+rather than appending records mechanically.
+Provenance.
+Every integrated memory must be grounded with its supporting memory record identifier in the evidence section.
+Output behavior.
+Use file operations to read, update, create, or merge topic tracks. Finish the round after all necessary edits are
+completed.
+Figure 9 | Abbreviated prompt template for topic-track writing.
+User Profile Update Prompt
+You are a user-profile synthesis writer.
+Given the existing user profile, newly changed topic tracks, update statistics, and the current timestamp, revise
+the global user profile.
+Evidence constraints. Use only information grounded in topic tracks. Do not infer user information from file
+paths, workspace structure, system metadata, or unsupported assumptions. If evidence is insufficient, omit the
+field rather than speculate. Keep the output language consistent with the source records.
+Synthesis goals. Build a concise user-level narrative by connecting information across topic tracks. Focus on
+stable information rather than episodic details. Scan for:
+• Base anchors: confirmed facts, demographic traits, and current state.
+• Interest graph: topics, activities, or domains that receive sustained attention.
+• Interaction protocol: communication style, workflow preferences, and response constraints.
+• High-level patterns: recurring decision logic, long-term tendencies, and supported evolution.
+Output. Return a Markdown user profile within 2000 characters. The profile may contain sections for basic
+information, long-term preferences, current context, interaction protocol, and high-level evolution. Revise the
+existing profile rather than rewriting from scratch, preserving useful stable information and updating outdated
+content when new evidence supports the change.
+Figure 10 | Abbreviated prompt template for user-profile updates.
+
+------------------------------------
+Inference Prompt
+You are a personal assistant. Your goal is to answer the user’s question correctly and grounded in evidence.
+Workflow. First, determine whether the current information is sufficient. If the question concerns the user and the
+evidence is insufficient, use the structured memory bank through tools. Stop using tools once enough evidence
+has been gathered.
+Tool budget. Use no more than four tool-calling turns per question. Do not continue searching for marginal extra
+evidence.
+Memory bank. The memory bank contains four layers:
+• Raw conversations: original dialogue evidence; use search_conversation or get_conversation.
+• Memory records: compact structured memories; use search_records or get_records.
+• Topic tracks: topic-level evolving summaries; use read_file.
+• User profile: global user-level summary; use read_file.
+Grounding. Do not guess user information. If retrieved memories conflict, strict instruction records take precedence.
+Use raw conversations when exact evidence is needed.
+Final answer. Only when evidence is sufficient, return the answer in the required JSON format:
+{"answer": "...", "reason": "..."}
+Figure 11 | Abbreviated prompt template for inference-time memory navigation.
+Artifact
+Type
+License
+Use in this work
+LoCoMo
+Long-term
+conversa-
+tional memory bench-
+mark
+CC BY-NC 4.0
+Used for long-term user-memory evaluation
+and part of memory-tool RL training. The li-
+cense is non-commercial, so we use it for re-
+search evaluation only.
+PersonaMem-v2
+Personalized
+user-
+memory benchmark
+MIT
+Used for implicit preference and persona-
+memory evaluation, and part of memory-tool
+RL training.
+LongMemEval
+Long-term
+memory
+benchmark
+MIT
+Used as a held-out out-of-distribution memory
+benchmark.
+V*Bench
+Visual tool-use bench-
+mark
+MIT project license
+Used for non-memory visual tool-use evalua-
+tion. The official repository is MIT-licensed;
+image assets should be used following their
+original source terms when redistributed.
+GPQA-Diamond
+Scientific
+reasoning
+benchmark
+MIT
+Used as a non-memory reasoning benchmark.
+BFCL-v3
+Function-calling
+benchmark
+Apache-2.0
+Used as a non-memory text tool-use bench-
+mark.
+Qwen3.5-9B / 122B
+/ 397B
+Base language models
+Apache-2.0
+Used as base LLMs for NapMem and scaling
+variants.
+Table 9 | Licenses of external artifacts used in this work.
+
+------------------------------------
