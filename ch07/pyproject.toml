@@ -1,0 +1,12 @@
+[project]
+name = "ch07"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "load-dotenv>=0.1.0",
+    "openai>=3.6.0",
+    "pytz>=2026.3.post1",
+    "streamlit>=1.62.0",
+    "tabulate>=0.10.0",
+    "yfinance>=1.7.0",
+]
