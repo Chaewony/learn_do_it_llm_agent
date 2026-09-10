@@ -3,8 +3,11 @@ name = "ch08"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "dotenv>=0.9.9",
     "langchain-openai>=1.6.0",
+    "protobuf>=7.36.1",
     "pytz>=2026.3.post1",
+    "streamlit>=1.63.0",
     "tabulate>=0.10.0",
     "yfinance>=1.7.0",
 ]
