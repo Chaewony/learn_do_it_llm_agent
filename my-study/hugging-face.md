@@ -1,3 +1,16 @@
+# Hugging Face와 로컬 AI 실행 환경
+
+## 📌 학습 내용
+
+* Hugging Face와 Ollama의 차이
+* 로컬에서 LLM / AI 모델이 실행되는 과정
+* Transformers와 PyTorch의 역할
+* CUDA를 이용한 GPU 추론
+* Tensor와 모델 가중치의 관계
+* `safetensors` 파일 구조 이해
+
+---
+
 # Huggingface에 대해서 알아보기
 ## Q. Ollama에서 gemma 모델을 사용하는거랑 hugging face에서 받아다 쓰는거랑 어떤 점이 다를까?
 ### LLM 엔진/서버 
@@ -63,6 +76,23 @@ Transformers / PyTorch
    ↓
 LLM
 ```
+
+`Hugging Face Hub`
+```txt
+                모델 / 데이터셋 저장소
+                        │
+               huggingface_hub
+                        │
+       ┌────────────────┼─────────────────┐
+       │                │                 │
+ transformers        datasets         diffusers
+       │
+       ├── tokenizers
+       ├── accelerate
+       ├── peft
+       └── evaluate
+```
+
 Hugging Face를 쓰는 가장 큰 이유는 원하는 모델을 자유롭게 선택하고 직접 제어할 수 있기 때문임.
 
 예를 들어 Transformers로 Llama·Qwen·Whisper 같은 모델을 직접 불러와 GPU 사용, 파인튜닝, 양자화, 모델 구조 변경 등을 할 수 있음.
@@ -114,7 +144,7 @@ model.safetensors
     └── ... (수억~수십억 개)
 ```
 
-![alt text](model.safetensors.png) 
+![alt text](img/model.safetensors.png) 
 | 항목                               | 의미                                     |
 | -------------------------------- | -------------------------------------- |
 | `model.language_model.layers.40` | Transformer의 **40번째 레이어**              |
@@ -124,3 +154,25 @@ model.safetensors
 | `Precision BF16`                 | 가중치를 **BFloat16 형식**으로 저장              |
 
 예를 들어 in_proj_qkv.weight [10,240, 5,120]는 5120차원 입력을 받아 Q/K/V 관련 계산을 수행하는 거대한 가중치 텐서이고, out_proj.weight [5120, 6144]는 Attention 결과를 다시 변환하는 가중치임. 즉 화면에 보이는 각각의 항목 하나하나가 모델이 학습해서 얻은 숫자들의 묶음(텐서)라고 생각하면 된다고 함.
+
+# 💡 정리
+
+이번 학습을 통해 로컬 AI 모델을 단순히 "다운로드해서 실행한다"에서 끝내지 않고,
+
+```text
+Hugging Face
+    ↓
+AI 모델 다운로드
+    ↓
+Transformers / PyTorch
+    ↓
+CUDA
+    ↓
+NVIDIA GPU
+    ↓
+Tensor 연산
+    ↓
+모델 추론
+```
+
+이라는 **로컬 AI 모델의 실행 구조를 이해하는 것**을 목표로 했습니다.
