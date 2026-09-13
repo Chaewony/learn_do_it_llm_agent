@@ -38,7 +38,7 @@
 | [Ch06](./ch06) | Vision 모델 / 이미지 분석 / TTS              |    ✅   |
 | [Ch07](./ch07) | Function Calling / 주식 데이터 활용          |    ✅   |
 | [Ch08](./ch08) | LangChain / LCEL / `@tool` / Pydantic |    ✅   |
-|      Ch09      | RAG / 문서 기반 질의응답                      |    ⬜   |
+| [Ch09](./ch09) | RAG / 문서 기반 질의응답                      |    ✅   |
 |      Ch10      | 인터넷 검색 / 웹·YouTube 활용                 |    ⬜   |
 |      Ch11      | 로컬 LLM / DeepSeek / RAG               |    ⬜   |
 |      Ch12      | LangGraph / 상태 관리 / 메모리               |    ⬜   |
@@ -82,6 +82,8 @@ learn_do_it_llm_agent/
 * [Hugging Face와 로컬 AI 실행 환경](./my-study/hugging-face.md)
 * [AI 모델 및 API 활용 정보 찾아보기](./my-study/ai-model-and-api-study.md)
 * [Tool Calling 동작 과정과 LangChain 활용](./my-study/tool-calling-and-langchain.md)
+* [랭체인 퀵스타트](./my-study/langchain-quick-start/)
+* [벡터와 청킹](./my-study/vector-chunking.md)
 
 > 학습하면서 새로운 주제가 생길 때마다 추가할 예정입니다.
 
