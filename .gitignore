@@ -16,3 +16,7 @@
 # Python 실행 중 생성되는 로컬 파일
 __pycache__/
 *.py[cod]
+
+# 실습용 PDF 데이터
+/ch09/data/2040_seoul_plan.pdf
+/ch09/data/OneNYC_2050_Strategic_Plan.pdf
