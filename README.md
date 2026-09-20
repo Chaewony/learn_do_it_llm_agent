@@ -39,7 +39,7 @@
 | [Ch07](./ch07) | Function Calling / 주식 데이터 활용          |    ✅   |
 | [Ch08](./ch08) | LangChain / LCEL / `@tool` / Pydantic |    ✅   |
 | [Ch09](./ch09) | RAG / 문서 기반 질의응답                      |    ✅   |
-|      Ch10      | 인터넷 검색 / 웹·YouTube 활용                 |    ⬜   |
+| [Ch09](./ch09) | 인터넷 검색 / 웹·YouTube 활용                 |    ✅   |
 |      Ch11      | 로컬 LLM / DeepSeek / RAG               |    ⬜   |
 |      Ch12      | LangGraph / 상태 관리 / 메모리               |    ⬜   |
 |      Ch13      | LangGraph 기반 RAG / 멀티에이전트             |    ⬜   |
@@ -84,6 +84,7 @@ learn_do_it_llm_agent/
 * [Tool Calling 동작 과정과 LangChain 활용](./my-study/tool-calling-and-langchain.md)
 * [랭체인 퀵스타트](./my-study/langchain-quick-start/)
 * [벡터와 청킹](./my-study/vector-chunking.md)
+* [LLM](./my-study/llm.md)
 
 > 학습하면서 새로운 주제가 생길 때마다 추가할 예정입니다.
 
