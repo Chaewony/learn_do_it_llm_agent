@@ -107,3 +107,28 @@ LLM
 * `messages`에는 `HumanMessage → AIMessage → ToolMessage → AIMessage`가 순서대로 쌓인다.
 * OpenAI API를 직접 사용할 때는 Tool 스키마를 직접 작성해야 한다.
 * **LangChain에서는 `@tool`, `bind_tools()` 등을 이용해 이러한 연결 과정을 간단하게 만들 수 있다.**
+
+
+---
+#### 추가
+- langchain-community라는 거대한 통합 패키지 → langchain-<provider> 형태의 독립 integration 패키지들로 분리
+
+```txt
+LangChain 구조
+
+langchain-core              ← 핵심 추상화/인터페이스
+│  ├─ messages
+│  ├─ prompts
+│  ├─ runnables
+│  └─ tools                 ← ★ langchain_core.tools
+│       ├─ @tool
+│       └─ BaseTool
+│
+├─ langchain                ← Agent 등 상위 기능
+│
+└─ Integration 계층
+   ├─ langchain-openai
+   ├─ langchain-ollama
+   ├─ langchain-chroma
+   └─ ...
+```

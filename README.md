@@ -39,8 +39,8 @@
 | [Ch07](./ch07) | Function Calling / 주식 데이터 활용          |    ✅   |
 | [Ch08](./ch08) | LangChain / LCEL / `@tool` / Pydantic |    ✅   |
 | [Ch09](./ch09) | RAG / 문서 기반 질의응답                      |    ✅   |
-| [Ch09](./ch09) | 인터넷 검색 / 웹·YouTube 활용                 |    ✅   |
-|      Ch11      | 로컬 LLM / DeepSeek / RAG               |    ⬜   |
+| [Ch10](./ch10) | 인터넷 검색 / 웹·YouTube 활용                 |    ✅   |
+| [Ch11](./ch11) | 로컬 LLM / DeepSeek / RAG               |    ✅   |
 |      Ch12      | LangGraph / 상태 관리 / 메모리               |    ⬜   |
 |      Ch13      | LangGraph 기반 RAG / 멀티에이전트             |    ⬜   |
 |      Ch14      | LangGraph 기반 멀티에이전트                   |    ⬜   |
