@@ -85,6 +85,7 @@ learn_do_it_llm_agent/
 * [랭체인 퀵스타트](./my-study/langchain-quick-start/)
 * [벡터와 청킹](./my-study/vector-chunking.md)
 * [LLM](./my-study/llm.md)
+* [Inside An LLM](./my-study/inside-an-llm.md)
 
 > 학습하면서 새로운 주제가 생길 때마다 추가할 예정입니다.
 
