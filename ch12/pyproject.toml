@@ -1,0 +1,20 @@
+[project]
+name = "ch12"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "ddgs>=9.16.0",
+    "dotenv>=0.9.9",
+    "langchain-openai>=1.7.0",
+    "langgraph>=1.2.14",
+    "pytz>=2026.5",
+    "tabulate>=0.10.0",
+    "yfinance>=1.7.0",
+    "youtube-search>=2.2.0",
+    "youtube-transcript-api>=1.2.4",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.4.0",
+]
