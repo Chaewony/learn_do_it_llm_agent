@@ -43,7 +43,7 @@
 | [Ch11](./ch11) | 로컬 LLM / DeepSeek / RAG               |    ✅   |
 | [Ch12](./ch12/)| LangGraph / 상태 관리 / 메모리               |    ✅   |
 | [Ch13](./ch13/)| LangGraph 기반 RAG / 멀티에이전트             |    ✅   |
-|      Ch14      | LangGraph 기반 멀티에이전트                   |    ⬜   |
+| [Ch14](./ch14/)| LangGraph 기반 멀티에이전트                   |    ✅   |
 |      Ch15      | 자율적으로 작업하는 멀티에이전트                     |    ⬜   |
 |      Ch16      | 로컬 LLM / 임베딩 모델 / AI 서비스 발전           |    ⬜   |
 
@@ -119,6 +119,7 @@ Conclusion
 | Experiment 01 | Tool Calling 동작 확인 |    ⬜   |
 | Experiment 02 | 여러 Tool 호출 과정 확인   |    ⬜   |
 | Experiment 03 | API 방식에 따른 차이 확인   |    ⬜   |
+| Experiment 04 | [멀티 에이전트 활용](./experiments/multiagent-idea.md) |  🔄   |
 
 > Status
 > ✅ 완료 · 🔄 진행 중 · ⬜ 예정
